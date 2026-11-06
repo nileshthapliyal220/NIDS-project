@@ -1,0 +1,12 @@
+Remove-Item .gitignore
+@"
+venv/
+__pycache__/
+*.pyc
+data/
+uploads/
+*.pcap
+*.pcapng
+*.db
+.env
+"@ | Out-File -Encoding ascii .gitignore
