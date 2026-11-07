@@ -10,7 +10,10 @@
     .cards { display: flex; gap: 1rem; margin: 1rem 0 2rem; }
     .card { border: 1px solid #ddd; border-radius: 8px; padding: .8rem 1.2rem; }
     .card b { font-size: 1.6rem; display: block; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+   .alert { background: #fde2e1; border-left: 5px solid #E45756; padding: .7rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
   </style>
+  <script src="{{ url_for('static', filename='plotly.min.js') }}"></script>
 </head>
 <body>
   <p><a href="{{ url_for('home') }}">&larr; Analyze another file</a></p>
@@ -21,6 +24,21 @@
     <div class="card"><b>{{ flagged }}</b> flagged as attack</div>
     <div class="card"><b>{{ percent }}%</b> of flows</div>
   </div>
+       {% for s in suspects %}
+       <div class="alert">
+         <b>Possible port scan:</b> {{ s['src_ip'] }} contacted {{ s['distinct_ports'] }} different ports
+         on {{ s['dst_ip'] }} ({{ s['flows'] }} flows, {{ s['flagged'] }} flagged by the model).
+       </div>
+     {% endfor %}
+
+     <div class="grid">
+       <div id="donut"></div>
+       <div id="confidence"></div>
+       <div id="sources"></div>
+       <div id="ports"></div>
+       <div id="protocols"></div>
+       {% if charts.timeline %}<div id="timeline"></div>{% endif %}
+    </div>
 
   <h2>Busiest source &rarr; target pairs</h2>
   <p>A single source touching many different ports of one target is the signature of a port scan.</p>
@@ -48,5 +66,11 @@
   {% else %}
     <p>No flows were flagged.</p>
   {% endif %}
+    <script>
+    const charts = {{ charts | tojson }};
+    for (const [id, fig] of Object.entries(charts)) {
+     Plotly.newPlot(id, fig.data, fig.layout, {responsive: true, displaylogo: false});
+    }
+    </script>
 </body>
 </html>

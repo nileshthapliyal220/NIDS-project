@@ -1,5 +1,6 @@
 import os
 import uuid
+from charts import build_charts, find_scan_suspects
 
 import pandas as pd
 from flask import Flask, flash, redirect, render_template, request, url_for
@@ -85,6 +86,8 @@ def upload():
         percent=round(100 * flagged / total) if total else 0,
         pairs=pairs.to_dict("records"),
         top=top.to_dict("records"),
+        charts=build_charts(result),
+        suspects=find_scan_suspects(result),
     )
 
 
