@@ -9,4 +9,5 @@ uploads/
 *.pcapng
 *.db
 .env
+instance/
 "@ | Out-File -Encoding ascii .gitignore

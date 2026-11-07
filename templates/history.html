@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>NIDS: history</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left; }
+    .msg { background: #fff3cd; padding: .6rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+    form { display: inline; }
+  </style>
+</head>
+<body>
+  <p><a href="{{ url_for('home') }}">&larr; Analyze a file</a></p>
+  <h1>Past analyses</h1>
+
+  {% for m in get_flashed_messages() %}
+    <div class="msg">{{ m }}</div>
+  {% endfor %}
+
+  {% if analyses %}
+  <table>
+    <tr><th>File</th><th>Date (UTC)</th><th>Flows</th><th>Flagged</th><th></th></tr>
+    {% for a in analyses %}
+    <tr>
+      <td><a href="{{ url_for('results', analysis_id=a.id) }}">{{ a.filename }}</a></td>
+      <td>{{ a.created.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ a.total_flows }}</td>
+      <td>{{ a.flagged_flows }}</td>
+      <td>
+        <form action="{{ url_for('delete', analysis_id=a.id) }}" method="post">
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p>No analyses yet.</p>
+  {% endif %}
+</body>
+</html>

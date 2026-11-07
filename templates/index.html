@@ -11,6 +11,7 @@
 </head>
 <body>
   <h1>Network Intrusion Detector</h1>
+  <p><a href="{{ url_for('history') }}">View past analyses</a></p>
   <p>Upload a packet capture (.pcap or .pcapng, up to 50 MB) to analyze it.</p>
 
   {% for m in get_flashed_messages() %}
