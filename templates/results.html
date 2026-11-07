@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>NIDS: results</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+    th, td { border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left; }
+    .cards { display: flex; gap: 1rem; margin: 1rem 0 2rem; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: .8rem 1.2rem; }
+    .card b { font-size: 1.6rem; display: block; }
+  </style>
+</head>
+<body>
+  <p><a href="{{ url_for('home') }}">&larr; Analyze another file</a></p>
+  <h1>Results for {{ filename }}</h1>
+
+  <div class="cards">
+    <div class="card"><b>{{ total }}</b> flows analyzed</div>
+    <div class="card"><b>{{ flagged }}</b> flagged as attack</div>
+    <div class="card"><b>{{ percent }}%</b> of flows</div>
+  </div>
+
+  <h2>Busiest source &rarr; target pairs</h2>
+  <p>A single source touching many different ports of one target is the signature of a port scan.</p>
+  <table>
+    <tr><th>Source</th><th>Target</th><th>Flows</th><th>Flagged</th><th>Distinct ports</th></tr>
+    {% for p in pairs %}
+    <tr>
+      <td>{{ p['src_ip'] }}</td><td>{{ p['dst_ip'] }}</td>
+      <td>{{ p['flows'] }}</td><td>{{ p['flagged'] }}</td><td>{{ p['distinct_ports'] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h2>Top flagged flows</h2>
+  {% if top %}
+  <table>
+    <tr><th>Source</th><th>Destination</th><th>Port</th><th>Protocol</th><th>Attack probability</th></tr>
+    {% for r in top %}
+    <tr>
+      <td>{{ r['src_ip'] }}</td><td>{{ r['dst_ip'] }}</td><td>{{ r['dst_port'] }}</td>
+      <td>{{ r['protocol'] }}</td><td>{{ '%.2f' % r['attack_probability'] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p>No flows were flagged.</p>
+  {% endif %}
+</body>
+</html>
