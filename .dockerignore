@@ -1,0 +1,15 @@
+venv/
+.git/
+data/
+uploads/
+instance/
+notebooks/
+__pycache__/
+*.pcap
+*.pcapng
+*.csv
+*.db
+.env
+models/nids_rf_full.joblib
+models/nids_rf_v3_behavior.joblib
+tool_source.txt

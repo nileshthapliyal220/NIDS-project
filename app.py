@@ -20,7 +20,7 @@ _secret = os.environ.get("SECRET_KEY")
 if IS_PROD and not _secret:
     raise RuntimeError("Set the SECRET_KEY environment variable in production.")
 
-app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 app.config["SECRET_KEY"] = _secret or "dev-only-change-me"
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = IS_PROD
