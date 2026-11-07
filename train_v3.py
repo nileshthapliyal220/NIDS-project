@@ -54,7 +54,7 @@ print("\nTraining rows:", len(X), "| attack share: {:.1%}".format(y.mean()))
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, stratify=y, random_state=42
 )
-rf = RandomForestClassifier(n_estimators=60, class_weight="balanced_subsample",random_state=42, n_jobs=-1)
+rf = RandomForestClassifier(n_estimators=60, min_samples_leaf=5,class_weight="balanced_subsample", random_state=42, n_jobs=-1)
 rf.fit(X_train, y_train)
 
 pred = rf.predict(X_test)
@@ -67,6 +67,6 @@ if not os.path.exists("models/nids_rf_full.joblib"):
 joblib.dump(
     {"model": rf, "features": KEEP,
      "mapping": {f: MAPPING[f] for f in KEEP}, "time_scale": 1},
-    "models/nids_rf.joblib",
+    "models/nids_rf.joblib", compress=3,
 )
 print("\nSaved models/nids_rf.joblib (full-feature backup: models/nids_rf_full.joblib)")

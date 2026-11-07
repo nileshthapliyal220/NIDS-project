@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from flask import session
 import json
 import os
 import uuid
@@ -12,9 +15,21 @@ from ml.predict import predict_flows
 from models import Analysis, FlaggedFlow, PairSummary, db
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024   # reject uploads over 50 MB
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///nids.db"
+IS_PROD = os.environ.get("NIDS_ENV") == "production"
+_secret = os.environ.get("SECRET_KEY")
+if IS_PROD and not _secret:
+    raise RuntimeError("Set the SECRET_KEY environment variable in production.")
+
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
+app.config["SECRET_KEY"] = _secret or "dev-only-change-me"
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = IS_PROD
+app.permanent_session_lifetime = timedelta(days=30)
+
+_db_url = os.environ.get("DATABASE_URL", "sqlite:///nids.db")
+if _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 
 db.init_app(app)
 with app.app_context():
@@ -28,6 +43,12 @@ ALLOWED = {".pcap", ".pcapng"}
 def to_json(obj):
     """json.dumps that also understands numpy numbers."""
     return json.dumps(obj, default=lambda o: o.item() if hasattr(o, "item") else str(o))
+def current_owner():
+    """A random ID for this browser, kept in a signed cookie."""
+    if "owner" not in session:
+        session["owner"] = uuid.uuid4().hex
+    session.permanent = True
+    return session["owner"]
 
 
 @app.route("/")
@@ -85,6 +106,7 @@ def upload():
 
     # --- save to the database ---
     analysis = Analysis(
+        owner=current_owner(),
         filename=secure_filename(f.filename),
         total_flows=len(result),
         flagged_flows=int(result["prediction"].sum()),
@@ -112,7 +134,8 @@ def upload():
 @app.route("/results/<int:analysis_id>")
 def results(analysis_id):
     a = db.session.get(Analysis, analysis_id)
-    if a is None:
+    a = db.session.get(Analysis, analysis_id)
+    if a is None or a.owner != current_owner():
         abort(404)
 
     pairs = sorted(a.pairs, key=lambda p: (p.flagged, p.flows), reverse=True)
@@ -135,14 +158,14 @@ def results(analysis_id):
 
 @app.route("/history")
 def history():
-    analyses = Analysis.query.order_by(Analysis.created.desc()).all()
+    analyses = (Analysis.query.filter_by(owner=current_owner()).order_by(Analysis.created.desc()).all())
     return render_template("history.html", analyses=analyses)
 
 
 @app.route("/delete/<int:analysis_id>", methods=["POST"])
 def delete(analysis_id):
     a = db.session.get(Analysis, analysis_id)
-    if a is None:
+    if a is None or a.owner != current_owner():
         abort(404)
     db.session.delete(a)
     db.session.commit()

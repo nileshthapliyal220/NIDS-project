@@ -9,6 +9,7 @@ class Analysis(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(255), nullable=False)
     created = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    owner = db.Column(db.String(32), index=True, nullable=False)
     total_flows = db.Column(db.Integer, nullable=False)
     flagged_flows = db.Column(db.Integer, nullable=False)
     charts_json = db.Column(db.Text, nullable=False)     # chart data, so charts can be redrawn later
