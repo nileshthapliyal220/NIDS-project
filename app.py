@@ -1,12 +1,14 @@
-from datetime import timedelta
-
-from flask import session
 import json
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
-from flask import Flask, abort, flash, redirect, render_template, request, url_for
+from flask import (Flask, abort, flash, redirect, render_template, request,
+                   session, url_for)
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
 from charts import build_charts, find_scan_suspects
@@ -15,6 +17,8 @@ from ml.predict import predict_flows
 from models import Analysis, FlaggedFlow, PairSummary, db
 
 app = Flask(__name__)
+
+# ---------- configuration ----------
 IS_PROD = os.environ.get("NIDS_ENV") == "production"
 _secret = os.environ.get("SECRET_KEY")
 if IS_PROD and not _secret:
@@ -31,18 +35,35 @@ if _db_url.startswith("postgres://"):
     _db_url = _db_url.replace("postgres://", "postgresql://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 
-db.init_app(app)
-with app.app_context():
-    db.create_all()          # creates the tables the first time
+RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "7"))
 
+# Behind a hosting provider's proxy, the real visitor address is in a header.
+# Only trust that header in production, where a proxy really sits in front.
+if IS_PROD:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+limiter = Limiter(get_remote_address, app=app, storage_uri="memory://")
+
+db.init_app(app)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED = {".pcap", ".pcapng"}
 
+# The first bytes of real capture files: classic pcap (both byte orders,
+# with microsecond or nanosecond times) and pcapng.
+PCAP_MAGICS = {
+    b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4",
+    b"\x4d\x3c\xb2\xa1", b"\xa1\xb2\x3c\x4d",
+    b"\x0a\x0d\x0d\x0a",
+}
 
+
+# ---------- helpers ----------
 def to_json(obj):
     """json.dumps that also understands numpy numbers."""
     return json.dumps(obj, default=lambda o: o.item() if hasattr(o, "item") else str(o))
+
+
 def current_owner():
     """A random ID for this browser, kept in a signed cookie."""
     if "owner" not in session:
@@ -51,12 +72,49 @@ def current_owner():
     return session["owner"]
 
 
+def purge_old():
+    """Delete analyses older than RETENTION_DAYS (and their child rows)."""
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=RETENTION_DAYS)
+    for a in Analysis.query.filter(Analysis.created < cutoff).all():
+        db.session.delete(a)
+    db.session.commit()
+
+
+with app.app_context():
+    db.create_all()
+    purge_old()
+
+
+# ---------- security headers and friendly errors ----------
+@app.after_request
+def add_headers(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
+@app.errorhandler(413)
+def too_large(_e):
+    mb = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+    flash(f"That file is too large. The limit is {mb} MB.")
+    return redirect(url_for("home"))
+
+
+@app.errorhandler(429)
+def too_many(_e):
+    flash("Too many uploads from your address. Please wait a while and try again.")
+    return redirect(url_for("home"))
+
+
+# ---------- pages ----------
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
 @app.route("/upload", methods=["POST"])
+@limiter.limit(lambda: os.environ.get("UPLOAD_LIMIT", "10 per hour; 30 per day"))
 def upload():
     f = request.files.get("file")
     if not f or f.filename == "":
@@ -74,6 +132,12 @@ def upload():
     f.save(pcap_path)
 
     try:
+        with open(pcap_path, "rb") as fh:
+            magic = fh.read(4)
+        if magic not in PCAP_MAGICS:
+            flash("That file does not look like a packet capture.")
+            return redirect(url_for("home"))
+
         extract_flows(pcap_path, csv_path)
         if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
             flash("No TCP or UDP flows were found in that file.")
@@ -88,7 +152,6 @@ def upload():
             if os.path.exists(p):
                 os.remove(p)
 
-    # --- build the summaries ---
     pairs_df = (
         result.groupby(["src_ip", "dst_ip"])
         .agg(flows=("prediction", "size"), flagged=("prediction", "sum"),
@@ -104,7 +167,6 @@ def upload():
         .head(20)
     )
 
-    # --- save to the database ---
     analysis = Analysis(
         owner=current_owner(),
         filename=secure_filename(f.filename),
@@ -127,13 +189,13 @@ def upload():
         ))
     db.session.add(analysis)
     db.session.commit()
+    purge_old()
 
     return redirect(url_for("results", analysis_id=analysis.id))
 
 
 @app.route("/results/<int:analysis_id>")
 def results(analysis_id):
-    a = db.session.get(Analysis, analysis_id)
     a = db.session.get(Analysis, analysis_id)
     if a is None or a.owner != current_owner():
         abort(404)
@@ -158,8 +220,9 @@ def results(analysis_id):
 
 @app.route("/history")
 def history():
-    analyses = (Analysis.query.filter_by(owner=current_owner()).order_by(Analysis.created.desc()).all())
-    return render_template("history.html", analyses=analyses)
+    analyses = (Analysis.query.filter_by(owner=current_owner())
+                .order_by(Analysis.created.desc()).all())
+    return render_template("history.html", analyses=analyses, days=RETENTION_DAYS)
 
 
 @app.route("/delete/<int:analysis_id>", methods=["POST"])
